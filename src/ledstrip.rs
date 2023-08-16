@@ -1,10 +1,35 @@
-use std::io::{self, Write};
+use std::{
+    io::{Error, ErrorKind, Result, Write},
+    path::Path,
+};
 
-static SOF: u8 = 0x72;
+use spidev::{Spidev, SpidevOptions};
 
-pub fn fill_colour<T: Write>(spi_device: &mut T) -> io::Result<()> {
-    let mut data = [0xFF; 256 * 3 + 1]; // 3 bytes per pixel + 1 for SOF.
-    data[0] = SOF;
-    spi_device.write(&data)?;
-    Ok(())
+static SOF: [u8; 1] = [0x72];
+
+pub struct LedStrip {
+    spi_dev: Spidev,
+}
+
+impl LedStrip {
+    pub fn open<P: AsRef<Path>>(spi_dev: P) -> Result<Self> {
+        let mut spi_dev = Spidev::open(spi_dev)?;
+        let options = SpidevOptions::new().max_speed_hz(9_000_000).build();
+        spi_dev.configure(&options)?;
+        Ok(LedStrip { spi_dev })
+    }
+
+    pub fn send_image(&mut self, bytes: &[u8]) -> Result<()> {
+        let written = self.spi_dev.write(&SOF)?;
+        if written != SOF.len() {
+            return Err(Error::new(ErrorKind::Interrupted, "Unable to write SOF"));
+        }
+
+        let written = self.spi_dev.write(bytes)?;
+        if written != bytes.len() {
+            return Err(Error::new(ErrorKind::Interrupted, "Unable to write bytes"));
+        }
+
+        Ok(())
+    }
 }

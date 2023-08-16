@@ -1,10 +1,10 @@
 use image::{io::Reader as ImageReader, GenericImageView};
+use ledstrip::LedStrip;
 use reqwest::ClientBuilder;
 use serde::Deserialize;
-use spidev::{Spidev, SpidevOptions};
 use std::error::Error;
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::path::Path;
 
 mod ledstrip;
@@ -23,14 +23,12 @@ struct PayloadData {
 
 #[derive(Debug, Deserialize)]
 struct Payload {
-    path: String,
     data: PayloadData,
 }
 
 fn parse_chunk_line(input: &str) -> io::Result<(&str, &str)> {
     let parts = input
         .splitn(2, ':')
-        .into_iter()
         .map(|s| s.trim())
         .collect::<Vec<_>>();
 
@@ -38,17 +36,15 @@ fn parse_chunk_line(input: &str) -> io::Result<(&str, &str)> {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid input"));
     }
 
-    Ok((&parts[0], &parts[1]))
+    Ok(((parts[0]), (parts[1])))
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let config = fs::read_to_string("config.toml")?;
     let config: Config = toml::from_str(&config)?;
-    let mut spi = Spidev::open(&config.spi_dev)?;
-    let options = SpidevOptions::new().max_speed_hz(9_000_000).build();
-    spi.configure(&options)?;
 
+    let mut led_strip = LedStrip::open(&config.spi_dev)?;
     let client = ClientBuilder::new().build()?;
 
     loop {
@@ -66,22 +62,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 println!("Not enough lines. Skipping...");
             }
 
-            let (_, command) = parse_chunk_line(&lines[0])?;
+            let (_, command) = parse_chunk_line(lines[0])?;
             if command == "put" {
-                let (_, data) = parse_chunk_line(&lines[1])?;
+                let (_, data) = parse_chunk_line(lines[1])?;
                 let emoji = serde_json::from_str::<Payload>(data).unwrap().data.emoji;
                 let unicode = emoji
                     .escape_unicode()
                     .to_string()
                     .replacen("\\u", "emoji_u", 1)
                     .replace("\\u", "_")
-                    .replace(&['{', '}'], "");
+                    .replace(['{', '}'], "");
 
                 let mut filename = config.emoji_directory.to_string() + "/" + &unicode + ".png";
                 if !Path::new(&filename).exists() {
-                    let previous_unicode = unicode.rsplitn(2, "_").last().unwrap();
-                    filename =
-                        config.emoji_directory.to_string() + "/" + previous_unicode + ".png";
+                    let previous_unicode = unicode.rsplitn(2, '_').last().unwrap();
+                    filename = config.emoji_directory.to_string() + "/" + previous_unicode + ".png";
                 }
 
                 let img = ImageReader::open(filename)?
@@ -91,8 +86,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     .flat_map(|(_, _, rgba)| vec![rgba[0], rgba[1], rgba[2]])
                     .collect::<Vec<_>>();
 
-                spi.write(&[0x72])?;
-                spi.write(&img)?;
+                led_strip.send_image(&img)?;
             }
         }
     }
