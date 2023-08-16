@@ -1,0 +1,4 @@
+spi_dev = '/dev/spidev0.0'
+emoji_directory = '/home/andreban/noto-emoji/png/32'
+firebase_url = 'https://emoji-led-matrix-controller-default-rtdb.firebaseio.com/ledgrids/1.json'
+
