@@ -65,10 +65,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
         };
 
         loop {
-            let Ok(Some(chunk)) = response.chunk().await else {
+            let Ok(chunk) = tokio::time::timeout(Duration::from_secs(60), response.chunk()).await
+            else {
+                log::error!("Timed out getting chunk");
+                break;
+            };
+
+            let Ok(Some(chunk)) = chunk else {
                 log::error!("Failed to get chunk");
                 break;
             };
+
             let chunk_vec = chunk.to_vec();
             let chunk_str = String::from_utf8_lossy(&chunk_vec);
             let lines = chunk_str.lines().collect::<Vec<_>>();
